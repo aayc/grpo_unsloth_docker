@@ -12,4 +12,5 @@ dependencies = [
     "pre-commit>=4.1.0",
     "unsloth>=2025.2.4",
     "vllm==0.7.2",
+    "wandb>=0.19.5",
 ]

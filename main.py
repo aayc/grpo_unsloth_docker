@@ -14,6 +14,10 @@ from dataclasses import dataclass  # noqa: E402
 from omegaconf import DictConfig  # noqa: E402
 from dataclasses import field  # noqa: E402
 import hydra  # noqa: E402
+import wandb  # noqa: E402
+import logging  # noqa: E402
+from datetime import datetime  # noqa: E402
+import os  # noqa: E402
 
 max_seq_length = 1024  # Can increase for longer reasoning traces
 lora_rank = 64  # Larger rank = smarter, but slower
@@ -127,18 +131,33 @@ def get_gsm8k_questions(split="train") -> Dataset:
 dataset = get_gsm8k_questions()
 
 
+# Set up logging
+log_dir = "logs"
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, f"training_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler()
+    ]
+)
+
+
 # Reward functions
 def correctness_reward_func(prompts, completions, answer, **kwargs) -> list[float]:
     responses = [completion[0]["content"] for completion in completions]
     q = prompts[0][-1]["content"]
     extracted_responses = [extract_xml_answer(r) for r in responses]
-    print(
-        "-" * 20,
-        f"Question:\n{q}",
-        f"\nAnswer:\n{answer[0]}",
-        f"\nResponse:\n{responses[0]}",
-        f"\nExtracted:\n{extracted_responses[0]}",
+    log_message = (
+        f"\n{'-' * 20}\n"
+        f"Question:\n{q}\n"
+        f"Answer:\n{answer[0]}\n"
+        f"Response:\n{responses[0]}\n"
+        f"Extracted:\n{extracted_responses[0]}"
     )
+    logging.info(log_message)
     return [2.0 if r == a else 0.0 for r, a in zip(extracted_responses, answer)]
 
 
@@ -208,7 +227,7 @@ def strawberry_example(tokenizer, model):
         .text
     )
 
-    print(output)
+    logging.info(f"Strawberry example output:\n{output}")
 
 
 # output
@@ -239,7 +258,7 @@ def strawberry_example_lora(tokenizer, model):
         .text
     )
 
-    print(output)
+    logging.info(f"Strawberry example with LoRA output:\n{output}")
 
 
 def save(cfg, model, tokenizer):
@@ -272,6 +291,17 @@ def save(cfg, model, tokenizer):
 
 @hydra.main(config_path="config", config_name="config.yaml")
 def main(cfg: DictConfig):
+    # Initialize wandb
+    wandb.login()
+    wandb.init(
+        project="unsloth-grpo-training",
+        config=dict(cfg),
+        name=f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    )
+    
+    logging.info("Starting training run")
+    logging.info(f"Configuration:\n{cfg}")
+
     model, tokenizer = prepare_model(cfg)
     training_args = GRPOConfig(
         use_vllm=True,
@@ -311,12 +341,22 @@ def main(cfg: DictConfig):
         train_dataset=dataset,
     )
     trainer.train()
+    logging.info("Training completed")
+    
+    logging.info("Running strawberry example without LoRA")
     strawberry_example(tokenizer=tokenizer, model=model)
+    
+    logging.info("Running strawberry example with LoRA")
     strawberry_example_lora(tokenizer=tokenizer, model=model)
+    
     trainer.save_model('/workspace/saved_model')
+    logging.info("Model saved")
 
     if cfg.saving is not None:
         save(cfg, model, tokenizer)
+        logging.info("Additional model formats saved")
+
+    wandb.finish()
 
 
 if __name__ == "__main__":

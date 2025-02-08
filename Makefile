@@ -19,7 +19,7 @@ start:
 	docker start $(CONTAINER_NAME)
 
 dry_run:
-	docker exec -it $(CONTAINER_NAME) bash -c "uv run python main.py 'saving=null' 'training.max_steps=10'"
+	docker exec -it $(CONTAINER_NAME) bash -c "uv run python main.py 'saving=null' 'training.max_steps=1000'"
 
 train:
 	docker exec -it $(CONTAINER_NAME) bash -c "uv run python main.py"
